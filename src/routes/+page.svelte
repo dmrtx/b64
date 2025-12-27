@@ -15,29 +15,26 @@
 
     let textEditor: HTMLTextAreaElement;
     let textHighlight: HTMLElement;
+    let textGutter: HTMLElement;
+
     let b64Editor: HTMLTextAreaElement;
+    let b64Gutter: HTMLElement;
 
     function detectType(text: string): "json" | "yaml" | null {
         const trimmed = text.trim();
         if (!trimmed) return null;
 
-        // Try JSON first
         try {
             JSON.parse(text);
             return "json";
-        } catch (e) {
-            // Not JSON
-        }
+        } catch (e) {}
 
-        // Try YAML
         try {
             const parsed = yaml.load(text);
             if (typeof parsed === "object" && parsed !== null) {
                 return "yaml";
             }
-        } catch (e) {
-            // Not YAML
-        }
+        } catch (e) {}
 
         return null;
     }
@@ -51,7 +48,6 @@
             return Prism.highlight(text, Prism.languages.yaml, "yaml") + "<br>";
         }
 
-        // Basic escaping for plain text
         return (
             text.replace(/[&<>"']/g, function (m) {
                 return (
@@ -64,6 +60,13 @@
                     }[m] || m
                 );
             }) + "<br>"
+        );
+    }
+
+    function getLineNumbers(text: string) {
+        const lines = text.split("\n").length;
+        return Array.from({ length: Math.max(1, lines) }, (_, i) => i + 1).join(
+            "\n",
         );
     }
 
@@ -130,10 +133,17 @@
         decodeFromBase64();
     }
 
-    function syncScroll(source: HTMLTextAreaElement, target: HTMLElement) {
-        if (target) {
-            target.scrollTop = source.scrollTop;
-            target.scrollLeft = source.scrollLeft;
+    function syncScroll(
+        source: HTMLTextAreaElement,
+        highlightTarget: HTMLElement | null,
+        gutterTarget: HTMLElement | null,
+    ) {
+        if (highlightTarget) {
+            highlightTarget.scrollTop = source.scrollTop;
+            highlightTarget.scrollLeft = source.scrollLeft;
+        }
+        if (gutterTarget) {
+            gutterTarget.scrollTop = source.scrollTop;
         }
     }
 </script>
@@ -142,7 +152,7 @@
     <title>B64 Converter - Professional Tool</title>
     <meta
         name="description"
-        content="Professional Base64 converter. Split-view interface, real-time conversion, JSON/YAML syntax highlighting."
+        content="Professional Base64 converter with line numbers. Split-view interface, real-time conversion, JSON/YAML syntax highlighting."
     />
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap"
@@ -244,20 +254,27 @@
                     </button>
                 </div>
             </div>
-            <div class="editor-wrapper with-overlay">
-                <pre aria-hidden="true" bind:this={textHighlight}><code
-                        class="language-{detectedType || 'none'}"
-                        >{@html highlight(textInput, detectedType)}</code
-                    ></pre>
-                <textarea
-                    bind:this={textEditor}
-                    value={textInput}
-                    oninput={handleTextInput}
-                    onscroll={() => syncScroll(textEditor, textHighlight)}
-                    placeholder="Type or paste text, JSON, or YAML here..."
-                    class:has-error={textError}
-                    spellcheck="false"
-                ></textarea>
+
+            <div class="editor-container">
+                <div class="gutter" bind:this={textGutter}>
+                    {getLineNumbers(textInput)}
+                </div>
+                <div class="editor-wrapper with-overlay">
+                    <pre aria-hidden="true" bind:this={textHighlight}><code
+                            class="language-{detectedType || 'none'}"
+                            >{@html highlight(textInput, detectedType)}</code
+                        ></pre>
+                    <textarea
+                        bind:this={textEditor}
+                        value={textInput}
+                        oninput={handleTextInput}
+                        onscroll={() =>
+                            syncScroll(textEditor, textHighlight, textGutter)}
+                        placeholder="Type or paste text, JSON, or YAML here..."
+                        class:has-error={textError}
+                        spellcheck="false"
+                    ></textarea>
+                </div>
                 {#if textError}
                     <div class="error-toast">{textError}</div>
                 {/if}
@@ -378,15 +395,22 @@
                     </button>
                 </div>
             </div>
-            <div class="editor-wrapper">
-                <textarea
-                    bind:this={b64Editor}
-                    value={b64Input}
-                    oninput={handleB64Input}
-                    placeholder="Base64 output..."
-                    class:has-error={b64Error}
-                    spellcheck="false"
-                ></textarea>
+
+            <div class="editor-container">
+                <div class="gutter" bind:this={b64Gutter}>
+                    {getLineNumbers(b64Input)}
+                </div>
+                <div class="editor-wrapper">
+                    <textarea
+                        bind:this={b64Editor}
+                        value={b64Input}
+                        oninput={handleB64Input}
+                        onscroll={() => syncScroll(b64Editor, null, b64Gutter)}
+                        placeholder="Base64 output..."
+                        class:has-error={b64Error}
+                        spellcheck="false"
+                    ></textarea>
+                </div>
                 {#if b64Error}
                     <div class="error-toast">{b64Error}</div>
                 {/if}
@@ -560,6 +584,30 @@
 
     .success {
         color: #4ade80;
+    }
+
+    .editor-container {
+        flex: 1;
+        display: flex;
+        position: relative;
+        overflow: hidden;
+        background: #0f172a;
+    }
+
+    .gutter {
+        width: 48px;
+        background: #0f172a;
+        border-right: 1px solid #334155;
+        color: #475569;
+        font-family: "Fira Code", "Monaco", monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        padding: 1rem 0;
+        text-align: right;
+        padding-right: 0.75rem;
+        overflow: hidden;
+        user-select: none;
+        white-space: pre;
     }
 
     .editor-wrapper {

@@ -14,6 +14,8 @@
     let textCopied = $state(false);
     let b64Copied = $state(false);
     let detectedType = $state<"json" | "yaml" | "java" | "kotlin" | null>(null);
+    let isDragging = $state(false);
+    let dragTarget = $state<"text" | "b64" | null>(null);
 
     let textEditor: HTMLTextAreaElement;
     let textHighlight: HTMLElement;
@@ -28,13 +30,11 @@
         const trimmed = text.trim();
         if (!trimmed) return null;
 
-        // Try JSON first
         try {
             JSON.parse(text);
             return "json";
         } catch (e) {}
 
-        // Try YAML (Strict object/array check to avoid false positives)
         try {
             const parsed = yaml.load(text);
             if (typeof parsed === "object" && parsed !== null) {
@@ -42,7 +42,6 @@
             }
         } catch (e) {}
 
-        // Java Heuristics
         if (
             /\b(public|private|protected)\s+(class|interface|enum)\b/.test(
                 text,
@@ -56,7 +55,6 @@
             return "java";
         }
 
-        // Kotlin Heuristics
         if (
             /\bfun\s+main\b/.test(text) ||
             /\b(val|var)\s+\w+/.test(text) ||
@@ -187,6 +185,52 @@
             gutterTarget.scrollTop = source.scrollTop;
         }
     }
+
+    // Drag and Drop Handlers
+    function handleDragOver(e: DragEvent, type: "text" | "b64") {
+        e.preventDefault();
+        e.stopPropagation();
+        isDragging = true;
+        dragTarget = type;
+    }
+
+    function handleDragLeave(e: DragEvent) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (
+            e.relatedTarget &&
+            (e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)
+        )
+            return;
+        isDragging = false;
+        dragTarget = null;
+    }
+
+    function handleDrop(e: DragEvent, type: "text" | "b64") {
+        e.preventDefault();
+        e.stopPropagation();
+        isDragging = false;
+        dragTarget = null;
+
+        const files = e.dataTransfer?.files;
+        if (!files || files.length === 0) return;
+
+        const file = files[0];
+        const reader = new FileReader();
+
+        reader.onload = (event) => {
+            const content = event.target?.result as string;
+            if (type === "text") {
+                textInput = content;
+                encodeToBase64();
+            } else {
+                b64Input = content;
+                decodeFromBase64();
+            }
+        };
+
+        reader.readAsText(file);
+    }
 </script>
 
 <svelte:head>
@@ -219,7 +263,40 @@
     </header>
 
     <main>
-        <div class="editor-pane">
+        <!-- Text Input Pane -->
+        <div
+            class="editor-pane {isDragging && dragTarget === 'text'
+                ? 'dragging'
+                : ''}"
+            ondragover={(e) => handleDragOver(e, "text")}
+            ondragleave={handleDragLeave}
+            ondrop={(e) => handleDrop(e, "text")}
+            role="region"
+            aria-label="Text Input Pane"
+        >
+            {#if isDragging && dragTarget === "text"}
+                <div class="drag-overlay">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="48"
+                        height="48"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path
+                            d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                        />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="12" y1="18" x2="12" y2="12" />
+                        <line x1="9" y1="15" x2="15" y2="15" />
+                    </svg>
+                    <span>Drop Plain Text File</span>
+                </div>
+            {/if}
             <div class="toolbar">
                 <div class="toolbar-title">
                     <svg
@@ -315,7 +392,7 @@
                         oninput={handleTextInput}
                         onscroll={() =>
                             syncScroll(textEditor, textHighlight, textGutter)}
-                        placeholder="Type or paste code here..."
+                        placeholder="Type or paste code here, or drop a file..."
                         class:has-error={textError}
                         spellcheck="false"
                     ></textarea>
@@ -370,7 +447,37 @@
             </div>
         </div>
 
-        <div class="editor-pane">
+        <!-- Base64 Input Pane -->
+        <div
+            class="editor-pane {isDragging && dragTarget === 'b64'
+                ? 'dragging'
+                : ''}"
+            ondragover={(e) => handleDragOver(e, "b64")}
+            ondragleave={handleDragLeave}
+            ondrop={(e) => handleDrop(e, "b64")}
+            role="region"
+            aria-label="Base64 Input Pane"
+        >
+            {#if isDragging && dragTarget === "b64"}
+                <div class="drag-overlay">
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="48"
+                        height="48"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>Drop Base64 File</span>
+                </div>
+            {/if}
             <div class="toolbar">
                 <div class="toolbar-title">
                     <svg
@@ -451,7 +558,7 @@
                         value={b64Input}
                         oninput={handleB64Input}
                         onscroll={() => syncScroll(b64Editor, null, b64Gutter)}
-                        placeholder="Base64 output..."
+                        placeholder="Base64 output or drop file..."
                         class:has-error={b64Error}
                         spellcheck="false"
                     ></textarea>
@@ -551,6 +658,34 @@
         flex-direction: column;
         min-width: 0;
         background: #0f172a;
+        position: relative;
+        transition: background 0.2s ease;
+    }
+
+    .editor-pane.dragging {
+        background: rgba(129, 140, 248, 0.05);
+    }
+
+    .drag-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        background: rgba(15, 23, 42, 0.85);
+        backdrop-filter: blur(4px);
+        z-index: 50;
+        border: 2px dashed #818cf8;
+        margin: 1rem;
+        border-radius: 12px;
+        color: #818cf8;
+        font-weight: 600;
+        pointer-events: none;
     }
 
     .toolbar {

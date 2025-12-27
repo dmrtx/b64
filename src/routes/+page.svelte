@@ -246,20 +246,49 @@
         if (!files || files.length === 0) return;
 
         const file = files[0];
+
+        // For Base64 input, we always expect text content to decode
+        if (type === "b64") {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                b64Input = event.target?.result as string;
+                decodeFromBase64();
+            };
+            reader.readAsText(file);
+            return;
+        }
+
+        // For Text input, check if it looks like a text file
+        const isText =
+            file.type.startsWith("text/") ||
+            file.type === "application/json" ||
+            file.type.endsWith("xml") ||
+            file.type === "application/javascript" ||
+            file.name.match(
+                /\.(txt|md|json|yaml|yml|xml|html|css|js|ts|java|kt|svg)$/i,
+            );
+
         const reader = new FileReader();
 
-        reader.onload = (event) => {
-            const content = event.target?.result as string;
-            if (type === "text") {
-                textInput = content;
+        if (isText) {
+            reader.onload = (event) => {
+                textInput = event.target?.result as string;
                 encodeToBase64();
-            } else {
-                b64Input = content;
-                decodeFromBase64();
-            }
-        };
-
-        reader.readAsText(file);
+            };
+            reader.readAsText(file);
+        } else {
+            // Handle as binary - read straight to DataURL (Base64)
+            reader.onload = (event) => {
+                const result = event.target?.result as string;
+                // DataURL format: "data:mime/type;base64,....."
+                const base64Content = result.split(",")[1];
+                b64Input = base64Content;
+                textInput = `[Binary File Loaded]\nName: ${file.name}\nSize: ${file.size} bytes\nType: ${file.type || "Unknown"}\n\nContent has been encoded directly to Base64 panel.`;
+                textError = "";
+                detectedType = null;
+            };
+            reader.readAsDataURL(file);
+        }
     }
 </script>
 

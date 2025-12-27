@@ -16,6 +16,7 @@
 		"@sveltejs/adapter-cloudflare": "^7.2.4",
 		"@sveltejs/kit": "^2.49.1",
 		"@sveltejs/vite-plugin-svelte": "^6.2.1",
+		"@types/js-yaml": "^4.0.9",
 		"@types/prismjs": "^1.26.5",
 		"svelte": "^5.45.6",
 		"svelte-check": "^4.3.4",
@@ -23,6 +24,7 @@
 		"vite": "^7.2.6"
 	},
 	"dependencies": {
+		"js-yaml": "^4.1.1",
 		"prismjs": "^1.30.0"
 	}
 }

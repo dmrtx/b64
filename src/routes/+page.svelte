@@ -1,7 +1,9 @@
 <script lang="ts">
     import Prism from "prismjs";
     import "prismjs/components/prism-json";
+    import "prismjs/components/prism-yaml";
     import { onMount } from "svelte";
+    import yaml from "js-yaml";
 
     let textInput = $state("");
     let b64Input = $state("");
@@ -9,28 +11,47 @@
     let b64Error = $state("");
     let textCopied = $state(false);
     let b64Copied = $state(false);
-    let isJson = $state(false);
+    let detectedType = $state<"json" | "yaml" | null>(null);
 
     let textEditor: HTMLTextAreaElement;
     let textHighlight: HTMLElement;
     let b64Editor: HTMLTextAreaElement;
 
-    function detectJson(text: string) {
-        if (!text.trim()) return false;
+    function detectType(text: string): "json" | "yaml" | null {
+        const trimmed = text.trim();
+        if (!trimmed) return null;
+
+        // Try JSON first
         try {
             JSON.parse(text);
-            return true;
+            return "json";
         } catch (e) {
-            return false;
+            // Not JSON
         }
+
+        // Try YAML
+        try {
+            const parsed = yaml.load(text);
+            if (typeof parsed === "object" && parsed !== null) {
+                return "yaml";
+            }
+        } catch (e) {
+            // Not YAML
+        }
+
+        return null;
     }
 
-    function highlight(text: string, isJsonContent: boolean) {
+    function highlight(text: string, type: "json" | "yaml" | null) {
         if (!text) return "<br>";
-        if (isJsonContent) {
+
+        if (type === "json") {
             return Prism.highlight(text, Prism.languages.json, "json") + "<br>";
+        } else if (type === "yaml") {
+            return Prism.highlight(text, Prism.languages.yaml, "yaml") + "<br>";
         }
-        // Basic escaping for plain text to keep font metrics consistent with overlay
+
+        // Basic escaping for plain text
         return (
             text.replace(/[&<>"']/g, function (m) {
                 return (
@@ -48,7 +69,7 @@
 
     function encodeToBase64() {
         textError = "";
-        isJson = detectJson(textInput);
+        detectedType = detectType(textInput);
 
         if (!textInput) {
             b64Input = "";
@@ -65,12 +86,12 @@
         b64Error = "";
         if (!b64Input) {
             textInput = "";
-            isJson = false;
+            detectedType = null;
             return;
         }
         try {
             textInput = decodeURIComponent(escape(atob(b64Input)));
-            isJson = detectJson(textInput);
+            detectedType = detectType(textInput);
         } catch (e) {
             b64Error = "Invalid Base64 string";
         }
@@ -96,7 +117,7 @@
         b64Input = "";
         textError = "";
         b64Error = "";
-        isJson = false;
+        detectedType = null;
     }
 
     function handleTextInput(e: Event) {
@@ -121,7 +142,7 @@
     <title>B64 Converter - Professional Tool</title>
     <meta
         name="description"
-        content="Professional Base64 converter. Split-view interface, real-time conversion, JSON syntax highlighting."
+        content="Professional Base64 converter. Split-view interface, real-time conversion, JSON/YAML syntax highlighting."
     />
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap"
@@ -166,8 +187,10 @@
                         />
                     </svg>
                     <span>Plain Text</span>
-                    {#if isJson}
+                    {#if detectedType === "json"}
                         <span class="badge">JSON</span>
+                    {:else if detectedType === "yaml"}
+                        <span class="badge yaml">YAML</span>
                     {/if}
                 </div>
                 <div class="toolbar-actions">
@@ -223,15 +246,15 @@
             </div>
             <div class="editor-wrapper with-overlay">
                 <pre aria-hidden="true" bind:this={textHighlight}><code
-                        class="language-json"
-                        >{@html highlight(textInput, isJson)}</code
+                        class="language-{detectedType || 'none'}"
+                        >{@html highlight(textInput, detectedType)}</code
                     ></pre>
                 <textarea
                     bind:this={textEditor}
                     value={textInput}
                     oninput={handleTextInput}
                     onscroll={() => syncScroll(textEditor, textHighlight)}
-                    placeholder="Type or paste text/JSON here..."
+                    placeholder="Type or paste text, JSON, or YAML here..."
                     class:has-error={textError}
                     spellcheck="false"
                 ></textarea>
@@ -390,7 +413,7 @@
         background: #0f172a;
         height: 100vh;
         color: #e2e8f0;
-        overflow: hidden; /* Prevent body scroll, let app handle it */
+        overflow: hidden;
     }
 
     .app {
@@ -457,7 +480,7 @@
         flex: 1;
         display: flex;
         flex-direction: column;
-        min-width: 0; /* Allow shrinking */
+        min-width: 0;
         background: #0f172a;
     }
 
@@ -493,6 +516,11 @@
         border-radius: 4px;
         font-weight: 600;
         letter-spacing: 0.05em;
+    }
+
+    .badge.yaml {
+        background: rgba(234, 179, 8, 0.2);
+        color: #facc15;
     }
 
     .toolbar-actions {
@@ -540,24 +568,6 @@
         overflow: hidden;
     }
 
-    /* Common styles for editor and highlight overlay */
-    textarea,
-    pre {
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        padding: 1rem;
-        border: none;
-        box-sizing: border-box;
-        font-family: "Fira Code", "Monaco", monospace;
-        font-size: 14px;
-        line-height: 1.6;
-        tab-size: 2;
-        white-space: pre-wrap;
-        word-break: break-all;
-        overflow: auto;
-    }
-
     .editor-wrapper.with-overlay textarea {
         color: transparent;
         caret-color: #fff;
@@ -575,20 +585,18 @@
         z-index: 1;
     }
 
-    /* Default textarea state (no overlay) */
     textarea {
         position: absolute;
         top: 0;
         left: 0;
         background: transparent;
-        color: #e2e8f0; /* Visible by default */
+        color: #e2e8f0;
         caret-color: #fff;
         resize: none;
         outline: none;
         z-index: 2;
     }
 
-    /* Default pre state (hidden when no overlay) */
     pre {
         display: none;
     }
@@ -614,6 +622,24 @@
 
     textarea::-webkit-scrollbar-thumb:hover {
         background: #475569;
+    }
+
+    /* Common styles for editor/pre for text matching */
+    textarea,
+    pre {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 1rem;
+        border: none;
+        box-sizing: border-box;
+        font-family: "Fira Code", "Monaco", monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        tab-size: 2;
+        white-space: pre-wrap;
+        word-break: break-all;
+        overflow: auto;
     }
 
     .error-toast {
@@ -737,11 +763,19 @@
         color: #94a3b8;
     }
 
-    :global(.token.property) {
+    :global(.token.property),
+    :global(.token.tag),
+    :global(.token.constant),
+    :global(.token.symbol),
+    :global(.token.deleted) {
         color: #7dd3fc;
     }
 
-    :global(.token.string) {
+    :global(.token.string),
+    :global(.token.char),
+    :global(.token.attr-value),
+    :global(.token.builtin),
+    :global(.token.inserted) {
         color: #86efac;
     }
 
@@ -750,7 +784,19 @@
         color: #fca5a5;
     }
 
-    :global(.token.operator) {
+    :global(.token.operator),
+    :global(.token.entity),
+    :global(.token.url) {
         color: #cbd5e1;
+    }
+
+    :global(.token.key) {
+        color: #7dd3fc;
+    }
+
+    :global(.token.atrule),
+    :global(.token.attr-value),
+    :global(.token.keyword) {
+        color: #c084fc;
     }
 </style>

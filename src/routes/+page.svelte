@@ -1,13 +1,55 @@
 <script lang="ts">
+    import Prism from "prismjs";
+    import "prismjs/components/prism-json";
+    import { onMount } from "svelte";
+
     let textInput = $state("");
     let b64Input = $state("");
     let textError = $state("");
     let b64Error = $state("");
     let textCopied = $state(false);
     let b64Copied = $state(false);
+    let isJson = $state(false);
+
+    let textEditor: HTMLTextAreaElement;
+    let textHighlight: HTMLElement;
+    let b64Editor: HTMLTextAreaElement;
+
+    function detectJson(text: string) {
+        if (!text.trim()) return false;
+        try {
+            JSON.parse(text);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function highlight(text: string, isJsonContent: boolean) {
+        if (!text) return "<br>";
+        if (isJsonContent) {
+            return Prism.highlight(text, Prism.languages.json, "json") + "<br>";
+        }
+        // Basic escaping for plain text to keep font metrics consistent with overlay
+        return (
+            text.replace(/[&<>"']/g, function (m) {
+                return (
+                    {
+                        "&": "&amp;",
+                        "<": "&lt;",
+                        ">": "&gt;",
+                        '"': "&quot;",
+                        "'": "&#039;",
+                    }[m] || m
+                );
+            }) + "<br>"
+        );
+    }
 
     function encodeToBase64() {
         textError = "";
+        isJson = detectJson(textInput);
+
         if (!textInput) {
             b64Input = "";
             return;
@@ -23,10 +65,12 @@
         b64Error = "";
         if (!b64Input) {
             textInput = "";
+            isJson = false;
             return;
         }
         try {
             textInput = decodeURIComponent(escape(atob(b64Input)));
+            isJson = detectJson(textInput);
         } catch (e) {
             b64Error = "Invalid Base64 string";
         }
@@ -52,6 +96,7 @@
         b64Input = "";
         textError = "";
         b64Error = "";
+        isJson = false;
     }
 
     function handleTextInput(e: Event) {
@@ -63,13 +108,20 @@
         b64Input = (e.target as HTMLTextAreaElement).value;
         decodeFromBase64();
     }
+
+    function syncScroll(source: HTMLTextAreaElement, target: HTMLElement) {
+        if (target) {
+            target.scrollTop = source.scrollTop;
+            target.scrollLeft = source.scrollLeft;
+        }
+    }
 </script>
 
 <svelte:head>
     <title>B64 Converter - Professional Tool</title>
     <meta
         name="description"
-        content="Professional Base64 converter. Split-view interface, real-time conversion, handles large files."
+        content="Professional Base64 converter. Split-view interface, real-time conversion, JSON syntax highlighting."
     />
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap"
@@ -114,6 +166,9 @@
                         />
                     </svg>
                     <span>Plain Text</span>
+                    {#if isJson}
+                        <span class="badge">JSON</span>
+                    {/if}
                 </div>
                 <div class="toolbar-actions">
                     <span class="stats">{textInput.length} chars</span>
@@ -166,12 +221,19 @@
                     </button>
                 </div>
             </div>
-            <div class="editor-wrapper">
+            <div class="editor-wrapper with-overlay">
+                <pre aria-hidden="true" bind:this={textHighlight}><code
+                        class="language-json"
+                        >{@html highlight(textInput, isJson)}</code
+                    ></pre>
                 <textarea
+                    bind:this={textEditor}
                     value={textInput}
                     oninput={handleTextInput}
-                    placeholder="Type or paste text here..."
+                    onscroll={() => syncScroll(textEditor, textHighlight)}
+                    placeholder="Type or paste text/JSON here..."
                     class:has-error={textError}
+                    spellcheck="false"
                 ></textarea>
                 {#if textError}
                     <div class="error-toast">{textError}</div>
@@ -295,10 +357,12 @@
             </div>
             <div class="editor-wrapper">
                 <textarea
+                    bind:this={b64Editor}
                     value={b64Input}
                     oninput={handleB64Input}
                     placeholder="Base64 output..."
                     class:has-error={b64Error}
+                    spellcheck="false"
                 ></textarea>
                 {#if b64Error}
                     <div class="error-toast">{b64Error}</div>
@@ -421,6 +485,16 @@
         color: #818cf8;
     }
 
+    .badge {
+        background: rgba(129, 140, 248, 0.2);
+        color: #818cf8;
+        font-size: 0.65rem;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+    }
+
     .toolbar-actions {
         display: flex;
         align-items: center;
@@ -466,35 +540,73 @@
         overflow: hidden;
     }
 
-    textarea {
+    /* Common styles for editor and highlight overlay */
+    textarea,
+    pre {
         width: 100%;
         height: 100%;
-        background: #0f172a;
+        margin: 0;
+        padding: 1rem;
         border: none;
-        color: #e2e8f0;
+        box-sizing: border-box;
         font-family: "Fira Code", "Monaco", monospace;
         font-size: 14px;
         line-height: 1.6;
-        padding: 1rem;
-        resize: none;
-        outline: none;
+        tab-size: 2;
+        white-space: pre-wrap;
+        word-break: break-all;
+        overflow: auto;
     }
 
-    textarea::placeholder {
-        color: #334155;
+    .editor-wrapper.with-overlay textarea {
+        color: transparent;
+        caret-color: #fff;
+        z-index: 2;
+    }
+
+    .editor-wrapper.with-overlay pre {
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        background: #0f172a;
+        color: #e2e8f0;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    /* Default textarea state (no overlay) */
+    textarea {
+        position: absolute;
+        top: 0;
+        left: 0;
+        background: transparent;
+        color: #e2e8f0; /* Visible by default */
+        caret-color: #fff;
+        resize: none;
+        outline: none;
+        z-index: 2;
+    }
+
+    /* Default pre state (hidden when no overlay) */
+    pre {
+        display: none;
     }
 
     /* Scrollbar styling */
-    textarea::-webkit-scrollbar {
+    textarea::-webkit-scrollbar,
+    pre::-webkit-scrollbar {
         width: 10px;
         height: 10px;
     }
 
-    textarea::-webkit-scrollbar-track {
+    textarea::-webkit-scrollbar-track,
+    pre::-webkit-scrollbar-track {
         background: #0f172a;
     }
 
-    textarea::-webkit-scrollbar-thumb {
+    textarea::-webkit-scrollbar-thumb,
+    pre::-webkit-scrollbar-thumb {
         background: #334155;
         border-radius: 5px;
         border: 2px solid #0f172a;
@@ -515,6 +627,7 @@
         font-size: 0.875rem;
         backdrop-filter: blur(4px);
         animation: slideUp 0.3s ease;
+        z-index: 10;
     }
 
     @keyframes slideUp {
@@ -602,5 +715,42 @@
         .editor-pane {
             height: 50%;
         }
+    }
+
+    /* PrismJS Theme Overrides */
+    :global(code[class*="language-"]),
+    :global(pre[class*="language-"]) {
+        text-shadow: none !important;
+        font-family: "Fira Code", "Monaco", monospace !important;
+        font-size: 14px !important;
+        line-height: 1.6 !important;
+    }
+
+    :global(.token.comment),
+    :global(.token.prolog),
+    :global(.token.doctype),
+    :global(.token.cdata) {
+        color: #64748b;
+    }
+
+    :global(.token.punctuation) {
+        color: #94a3b8;
+    }
+
+    :global(.token.property) {
+        color: #7dd3fc;
+    }
+
+    :global(.token.string) {
+        color: #86efac;
+    }
+
+    :global(.token.number),
+    :global(.token.boolean) {
+        color: #fca5a5;
+    }
+
+    :global(.token.operator) {
+        color: #cbd5e1;
     }
 </style>

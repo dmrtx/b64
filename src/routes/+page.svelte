@@ -4,7 +4,7 @@
     import "prismjs/components/prism-yaml";
     import "prismjs/components/prism-java";
     import "prismjs/components/prism-kotlin";
-    import { onMount } from "svelte";
+    import "prismjs/components/prism-markup"; // Handles XML/HTML
     import yaml from "js-yaml";
 
     let textInput = $state("");
@@ -13,7 +13,9 @@
     let b64Error = $state("");
     let textCopied = $state(false);
     let b64Copied = $state(false);
-    let detectedType = $state<"json" | "yaml" | "java" | "kotlin" | null>(null);
+    let detectedType = $state<
+        "json" | "yaml" | "java" | "kotlin" | "xml" | null
+    >(null);
     let isDragging = $state(false);
     let dragTarget = $state<"text" | "b64" | null>(null);
 
@@ -26,14 +28,30 @@
 
     function detectType(
         text: string,
-    ): "json" | "yaml" | "java" | "kotlin" | null {
+    ): "json" | "yaml" | "java" | "kotlin" | "xml" | null {
         const trimmed = text.trim();
         if (!trimmed) return null;
 
         try {
-            JSON.parse(text);
-            return "json";
+            // Ensure it looks like JSON object/array before parsing to avoid false positives with numbers/strings
+            if (
+                (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+                (trimmed.startsWith("[") && trimmed.endsWith("]"))
+            ) {
+                JSON.parse(text);
+                return "json";
+            }
         } catch (e) {}
+
+        // XML Detection
+        if (
+            trimmed.startsWith("<?xml") ||
+            (trimmed.startsWith("<") &&
+                trimmed.endsWith(">") &&
+                /<\/[a-zA-Z0-9_\-:]+>/.test(text))
+        ) {
+            return "xml";
+        }
 
         try {
             const parsed = yaml.load(text);
@@ -71,7 +89,7 @@
 
     function highlight(
         text: string,
-        type: "json" | "yaml" | "java" | "kotlin" | null,
+        type: "json" | "yaml" | "java" | "kotlin" | "xml" | null,
     ) {
         if (!text) return "<br>";
 
@@ -84,6 +102,10 @@
         } else if (type === "kotlin") {
             return (
                 Prism.highlight(text, Prism.languages.kotlin, "kotlin") + "<br>"
+            );
+        } else if (type === "xml") {
+            return (
+                Prism.highlight(text, Prism.languages.markup, "markup") + "<br>"
             );
         }
 
@@ -187,29 +209,37 @@
     }
 
     // Drag and Drop Handlers
-    function handleDragOver(e: DragEvent, type: "text" | "b64") {
+    let dragCounter = $state(0);
+
+    function handleDragEnter(e: DragEvent, type: "text" | "b64") {
         e.preventDefault();
         e.stopPropagation();
-        isDragging = true;
         dragTarget = type;
+        dragCounter++;
+        isDragging = true;
     }
 
     function handleDragLeave(e: DragEvent) {
         e.preventDefault();
         e.stopPropagation();
-        if (
-            e.relatedTarget &&
-            (e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)
-        )
-            return;
-        isDragging = false;
-        dragTarget = null;
+        dragCounter--;
+        if (dragCounter <= 0) {
+            isDragging = false;
+            dragCounter = 0;
+            dragTarget = null;
+        }
+    }
+
+    function handleDragOver(e: DragEvent) {
+        e.preventDefault(); // Necessary to allow dropping
+        e.stopPropagation();
     }
 
     function handleDrop(e: DragEvent, type: "text" | "b64") {
         e.preventDefault();
         e.stopPropagation();
         isDragging = false;
+        dragCounter = 0;
         dragTarget = null;
 
         const files = e.dataTransfer?.files;
@@ -268,7 +298,8 @@
             class="editor-pane {isDragging && dragTarget === 'text'
                 ? 'dragging'
                 : ''}"
-            ondragover={(e) => handleDragOver(e, "text")}
+            ondragenter={(e) => handleDragEnter(e, "text")}
+            ondragover={handleDragOver}
             ondragleave={handleDragLeave}
             ondrop={(e) => handleDrop(e, "text")}
             role="region"
@@ -319,6 +350,8 @@
                         <span class="badge">JSON</span>
                     {:else if detectedType === "yaml"}
                         <span class="badge yaml">YAML</span>
+                    {:else if detectedType === "xml"}
+                        <span class="badge xml">XML</span>
                     {:else if detectedType === "java"}
                         <span class="badge java">Java</span>
                     {:else if detectedType === "kotlin"}
@@ -383,7 +416,9 @@
                 </div>
                 <div class="editor-wrapper with-overlay">
                     <pre aria-hidden="true" bind:this={textHighlight}><code
-                            class="language-{detectedType || 'none'}"
+                            class="language-{detectedType === 'xml'
+                                ? 'markup'
+                                : detectedType || 'none'}"
                             >{@html highlight(textInput, detectedType)}</code
                         ></pre>
                     <textarea
@@ -452,7 +487,8 @@
             class="editor-pane {isDragging && dragTarget === 'b64'
                 ? 'dragging'
                 : ''}"
-            ondragover={(e) => handleDragOver(e, "b64")}
+            ondragenter={(e) => handleDragEnter(e, "b64")}
+            ondragover={handleDragOver}
             ondragleave={handleDragLeave}
             ondrop={(e) => handleDrop(e, "b64")}
             role="region"
@@ -735,6 +771,11 @@
     .badge.kotlin {
         background: rgba(167, 139, 250, 0.2);
         color: #c4b5fd;
+    }
+
+    .badge.xml {
+        background: rgba(236, 72, 153, 0.2);
+        color: #f472b6;
     }
 
     .toolbar-actions {

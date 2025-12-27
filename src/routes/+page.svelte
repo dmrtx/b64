@@ -2,6 +2,8 @@
     import Prism from "prismjs";
     import "prismjs/components/prism-json";
     import "prismjs/components/prism-yaml";
+    import "prismjs/components/prism-java";
+    import "prismjs/components/prism-kotlin";
     import { onMount } from "svelte";
     import yaml from "js-yaml";
 
@@ -11,7 +13,7 @@
     let b64Error = $state("");
     let textCopied = $state(false);
     let b64Copied = $state(false);
-    let detectedType = $state<"json" | "yaml" | null>(null);
+    let detectedType = $state<"json" | "yaml" | "java" | "kotlin" | null>(null);
 
     let textEditor: HTMLTextAreaElement;
     let textHighlight: HTMLElement;
@@ -20,15 +22,19 @@
     let b64Editor: HTMLTextAreaElement;
     let b64Gutter: HTMLElement;
 
-    function detectType(text: string): "json" | "yaml" | null {
+    function detectType(
+        text: string,
+    ): "json" | "yaml" | "java" | "kotlin" | null {
         const trimmed = text.trim();
         if (!trimmed) return null;
 
+        // Try JSON first
         try {
             JSON.parse(text);
             return "json";
         } catch (e) {}
 
+        // Try YAML (Strict object/array check to avoid false positives)
         try {
             const parsed = yaml.load(text);
             if (typeof parsed === "object" && parsed !== null) {
@@ -36,16 +42,51 @@
             }
         } catch (e) {}
 
+        // Java Heuristics
+        if (
+            /\b(public|private|protected)\s+(class|interface|enum)\b/.test(
+                text,
+            ) ||
+            /\bpublic\s+static\s+void\s+main\b/.test(text) ||
+            /\bSystem\.out\.print/.test(text) ||
+            (/\bclass\b/.test(text) &&
+                /[;{}]/.test(text) &&
+                !/\bfun\b/.test(text))
+        ) {
+            return "java";
+        }
+
+        // Kotlin Heuristics
+        if (
+            /\bfun\s+main\b/.test(text) ||
+            /\b(val|var)\s+\w+/.test(text) ||
+            /\bdata\s+class\b/.test(text) ||
+            /\bcompanion\s+object\b/.test(text) ||
+            /\bsuspend\s+fun\b/.test(text) ||
+            (text.includes("fun ") && !text.includes("function "))
+        ) {
+            return "kotlin";
+        }
+
         return null;
     }
 
-    function highlight(text: string, type: "json" | "yaml" | null) {
+    function highlight(
+        text: string,
+        type: "json" | "yaml" | "java" | "kotlin" | null,
+    ) {
         if (!text) return "<br>";
 
         if (type === "json") {
             return Prism.highlight(text, Prism.languages.json, "json") + "<br>";
         } else if (type === "yaml") {
             return Prism.highlight(text, Prism.languages.yaml, "yaml") + "<br>";
+        } else if (type === "java") {
+            return Prism.highlight(text, Prism.languages.java, "java") + "<br>";
+        } else if (type === "kotlin") {
+            return (
+                Prism.highlight(text, Prism.languages.kotlin, "kotlin") + "<br>"
+            );
         }
 
         return (
@@ -152,7 +193,7 @@
     <title>B64 Converter - Professional Tool</title>
     <meta
         name="description"
-        content="Professional Base64 converter with line numbers. Split-view interface, real-time conversion, JSON/YAML syntax highlighting."
+        content="Professional Base64 converter with line numbers. Split-view interface, real-time conversion, JSON/YAML/Java/Kotlin syntax highlighting."
     />
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap"
@@ -201,6 +242,10 @@
                         <span class="badge">JSON</span>
                     {:else if detectedType === "yaml"}
                         <span class="badge yaml">YAML</span>
+                    {:else if detectedType === "java"}
+                        <span class="badge java">Java</span>
+                    {:else if detectedType === "kotlin"}
+                        <span class="badge kotlin">Kotlin</span>
                     {/if}
                 </div>
                 <div class="toolbar-actions">
@@ -270,7 +315,7 @@
                         oninput={handleTextInput}
                         onscroll={() =>
                             syncScroll(textEditor, textHighlight, textGutter)}
-                        placeholder="Type or paste text, JSON, or YAML here..."
+                        placeholder="Type or paste code here..."
                         class:has-error={textError}
                         spellcheck="false"
                     ></textarea>
@@ -547,6 +592,16 @@
         color: #facc15;
     }
 
+    .badge.java {
+        background: rgba(249, 115, 22, 0.2);
+        color: #fb923c;
+    }
+
+    .badge.kotlin {
+        background: rgba(167, 139, 250, 0.2);
+        color: #c4b5fd;
+    }
+
     .toolbar-actions {
         display: flex;
         align-items: center;
@@ -800,6 +855,7 @@
         line-height: 1.6 !important;
     }
 
+    /* Common Token Colors */
     :global(.token.comment),
     :global(.token.prolog),
     :global(.token.doctype),
@@ -846,5 +902,18 @@
     :global(.token.attr-value),
     :global(.token.keyword) {
         color: #c084fc;
+    }
+
+    /* Java/Kotlin Specifics */
+    :global(.token.class-name) {
+        color: #fbbf24;
+    }
+
+    :global(.token.function) {
+        color: #60a5fa;
+    }
+
+    :global(.token.annotation) {
+        color: #fce7f3;
     }
 </style>
